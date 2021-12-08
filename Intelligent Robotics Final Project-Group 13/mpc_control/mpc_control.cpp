@@ -1,4 +1,4 @@
-#include <mpc_control/mpc_controllor.hpp>
+#include <mpc_control/mpc_control.hpp>
 
 MPCNavigation::MPCNavigation(ros::NodeHandle &nh){
 
