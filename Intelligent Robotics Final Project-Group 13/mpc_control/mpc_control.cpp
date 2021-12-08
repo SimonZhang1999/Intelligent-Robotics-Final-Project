@@ -2,7 +2,7 @@
 
 MPCNavigation::MPCNavigation(ros::NodeHandle &nh){
 
-	nh.param<std::string>("base_frmae", base_frame, "/base_link");
+	nh.param<std::string>("base_frame", base_frame, "/base_link");
 	nh.param<std::string>("world_frame", world_frame, "/map");
 	nh.param<std::string>("local_map_topic", local_map_topic, "/map");
 	
