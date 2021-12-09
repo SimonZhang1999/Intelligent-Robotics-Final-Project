@@ -22,6 +22,7 @@
 
 double mean_vel = 0;
 mini_snap::PolynomialTrajectory poly_pub_topic;
+// Publish polynomial coefficients, nodes, optimized trajectories
 ros::Publisher poly_coef_pub;
 ros::Publisher goal_list_pub;
 ros::Publisher mini_snap_trajectory_pub;
@@ -40,7 +41,7 @@ double last_yaw_, last_yaw_dot_;
 bool receive_traj_ = false;
 int traj_id_;
 double traj_duration_, time_forward_;
-
+// 路径回调
 void path_callback(const nav_msgs::Path::ConstPtr& msg){
     solve_min_snap(msg);
 }
@@ -50,12 +51,13 @@ void solve_min_snap(const nav_msgs::Path::ConstPtr& msg){
     std::vector<Eigen::Vector3d> waypoints;
     for(int i_count = 0; i_count < msg->poses.size(); i_count++ ){
         Eigen::Vector3d wp;
+        // Save the node to the queue
         wp << msg->poses[i_count].pose.position.x,
               msg->poses[i_count].pose.position.y,
                                           0;
         waypoints.push_back(wp);
     }
-    //start_yaw, final_yaw;
+    // Define initial Yaw Angle, end Yaw Angle, depression Angle, elevation Angle
     double start_yaw_, final_yaw_,roll,pitch; 
     tf::Quaternion start_q;
     tf::Quaternion final_q;
@@ -78,7 +80,7 @@ void solve_min_snap(const nav_msgs::Path::ConstPtr& msg){
     poly_pub_topic.trajectory_id = msg->poses.size();
 
 
-    //By time
+    // The initial Yaw Angle, the end Yaw Angle, and the polynomial coefficients are published at regular intervals
     for (int i = 0; i < time.size(); i++){ 
         for (int j = (i + 1) * 8 - 1; j >= i * 8; j--){
             poly_pub_topic.coef_x.push_back(poly_coef(j, 0));
@@ -95,7 +97,7 @@ void solve_min_snap(const nav_msgs::Path::ConstPtr& msg){
     deal_poly(poly_pub_topic);
     poly_coef_pub.publish(poly_pub_topic);
 }
-
+// Solving polynomial
 void deal_poly(const mini_snap::PolynomialTrajectory& msg){
     
     poly_traj_ptr->reset();
@@ -120,18 +122,19 @@ void deal_poly(const mini_snap::PolynomialTrajectory& msg){
     Eigen::Vector3d jerk(Eigen::Vector3d::Zero());
     std::pair<double, double> yaw_yawdot(0, 0);
 
-    // Time allocation, MPC operation frequency 0.1s
+    // Time allocation, MPC running frequency 0.1s
     double diff_time = 0.1;
-    
+    // 
     geometry_msgs::PoseArray traj_pts;
     traj_pts.header.frame_id = "map";
     traj_pts.header.stamp = ros::Time::now();
-
+    // Gets the track point of the current moment
     nav_msgs::Path global_trajecory_msg;
     global_trajecory_msg.header.frame_id = "map";
     global_trajecory_msg.header.stamp = ros::Time::now();
 
     Eigen::Vector3d last_pose(Eigen::Vector3d::Zero());
+    // The position, velocity, acceleration, and third derivative of the current moment are collected every 0.1s during the effective time
     for(double t_cur = 0.0; t_cur < traj_duration_-0.1; t_cur+=0.1){
         if (t_cur < traj_duration_ && t_cur >= 0.0){
             pos = poly_traj_ptr->evaluate(t_cur);
@@ -140,17 +143,15 @@ void deal_poly(const mini_snap::PolynomialTrajectory& msg){
             jerk = poly_traj_ptr->evaluateJerk(t_cur);
             yaw_yawdot = calculate_yaw(t_cur, pos, diff_time);
         }
-        else if (t_cur >= traj_duration_){
+        else (t_cur >= traj_duration_){
             pos = poly_traj_ptr->evaluate(traj_duration_);
             yaw_yawdot.first = last_yaw_;
             yaw_yawdot.second = 0;
         }
-        else{
-            ROS_WARN("[my Traj server]: invalid time.");
         }
         geometry_msgs::PoseStamped path_point;
         geometry_msgs::Pose        opt_pt;
-        // Solve parametric equations of x,y, and z with respect to t
+        // Find the parametric equations of x,y, and z with respect to t
         opt_pt.position.x = path_point.pose.position.x = pos[0];
         opt_pt.position.y = path_point.pose.position.y = pos[1];
         opt_pt.position.z = path_point.pose.position.z = pos[2];
@@ -159,6 +160,7 @@ void deal_poly(const mini_snap::PolynomialTrajectory& msg){
             opt_pt.orientation = path_point.pose.orientation = pose_q;
             last_pose = pos;
         }
+        // The final yaw Angle and direction are returned to pose_Q when the final moment is approaching
         else if(t_cur == traj_duration_-0.1){
             auto pose_q = tf::createQuaternionMsgFromYaw(msg.final_yaw);
             opt_pt.orientation = path_point.pose.orientation = pose_q;
@@ -188,6 +190,7 @@ std::pair<double, double> calculate_yaw(double t_cur, Eigen::Vector3d &pos, doub
     Eigen::Vector3d dir = t_cur + time_forward_ <= traj_duration_ ? poly_traj_ptr->evaluate(t_cur + time_forward_) - pos : poly_traj_ptr->evaluate(traj_duration_) - pos;
     double yaw_temp = dir.norm() > 0.1 ? atan2(dir(1), dir(0)) : last_yaw_;
     double max_yaw_change = YAW_DOT_MAX_PER_SEC * diff_time;
+    // To calculate the difference of Yaw, radians are used in calculation, so restrictions should be made
     if (yaw_temp - last_yaw_ > PI){
         if (yaw_temp - last_yaw_ - 2 * PI < -max_yaw_change){
             yaw = last_yaw_ - max_yaw_change;
@@ -266,14 +269,14 @@ int main(int argc, char **argv){
     nh.param<double>("mean_vel", mean_vel, 1.0);
     
     ros::Subscriber path_sub = nh.subscribe<nav_msgs::Path>("/rrt_star_path", 1, &path_callback);
-    // Find the x and y trajectories with respect to t
+    // Find x and y trajectories with respect to t
     goal_list_pub            = nh.advertise<geometry_msgs::PoseArray>("/goal_list", 10);
     poly_coef_pub            = nh.advertise<mini_snap::PolynomialTrajectory>("/poly_coefs", 10);/
     mini_snap_trajectory_pub = nh.advertise<nav_msgs::Path>("/global_trajectory", 10);
 
     mini_snap_solver_ptr = std::make_shared<MiniSnapCloseform>();
     poly_traj_ptr        = std::make_shared<PolynomialTraj>();
-
+    // Sets the order of the polynomial
     poly_pub_topic.num_order = 7;
     poly_pub_topic.start_yaw = 0;
     poly_pub_topic.final_yaw = 0;
