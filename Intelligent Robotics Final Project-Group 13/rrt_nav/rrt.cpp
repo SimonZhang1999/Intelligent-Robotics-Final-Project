@@ -1,5 +1,5 @@
 #include <rrt_nav/graph_searcher.h>
-
+// Initialize the grid map
 void RRTstarPreparatory::initGridMap(double _resolution, Eigen::Vector2d global_xy_l, Eigen::Vector2d global_xy_u, int max_x_id, int max_y_id){
 	gl_xl = global_xy_l(0);
     gl_yl = global_xy_l(1);
@@ -57,7 +57,7 @@ Eigen::Vector2d RRTstarPreparatory::coordRounding(const Eigen::Vector2d & coord)
 Eigen::Vector2d RRTstarPreparatory::coordRounding(const Eigen::Vector2i & idx){
     return gridIndex2coord(idx);
 }
-
+// Index to coordinate transformation
 Eigen::Vector2d RRTstarPreparatory::gridIndex2coord(const Eigen::Vector2i & index){
 	Eigen::Vector2d pt;
 
@@ -66,7 +66,7 @@ Eigen::Vector2d RRTstarPreparatory::gridIndex2coord(const Eigen::Vector2i & inde
 
     return pt;
 }
-
+// Index to coordinate transformation
 Eigen::Vector2i RRTstarPreparatory::coord2gridIndex(const Eigen::Vector2d & pt){
 
 	Eigen::Vector2i idx;
