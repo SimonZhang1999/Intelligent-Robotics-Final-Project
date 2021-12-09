@@ -43,7 +43,7 @@ namespace og = ompl::geometric;
 namespace backward {
 backward::SignalHandling sh;
 }
-
+// Loading map information
 struct map_info{
     int map_width;
     int map_height;
@@ -52,7 +52,7 @@ struct map_info{
     double map_resolution;
     std::vector<std_msgs::Int8> map_data;
 };
-
+// Get robot coordinates
 struct robot_coord{
     double position_x;
     double position_y;
@@ -70,42 +70,43 @@ void map_callback(const nav_msgs::OccupancyGrid::ConstPtr& msg);
 void goal_callback(const geometry_msgs::PoseStamped::ConstPtr& msg);
 void odom_callback(const ros::TimerEvent&);
 map_info get_map();
-robot_coord get_odom();
 void visRRTstarPath(std::vector<Eigen::Vector3d> nodes );
 bool pathFinding(const Eigen::Vector3d start_pt, const Eigen::Vector3d target_pt);
 void dealpathtrajectory(std::vector<Eigen::Vector3d>& path);
 void send_path(const Eigen::Quaterniond& begin_q, const Eigen::Quaterniond& end_q);
 
 
-
+// Map callback to check if a new map has been received
 void map_callback(const nav_msgs::OccupancyGrid::ConstPtr& msg){
     global_map = *msg;
     get_new_map = true;
 }
-
+// Calls the target point to convert the coordinates of the world map to those of the grid map
 void goal_callback(const geometry_msgs::PoseStamped::ConstPtr& msg){
 
     auto map_infomation = get_map();
 
     Eigen::Vector2d _map_lower, _map_upper;
+    // Calculate the upper and lower bounds of the map. Resolution is the resolution of the map
     _map_lower << - std::abs(map_infomation.origin_x), - std::abs(map_infomation.origin_y);
     _map_upper << + map_infomation.map_width * map_infomation.map_resolution  - std::abs(map_infomation.origin_x), 
                   + map_infomation.map_height * map_infomation.map_resolution - std::abs(map_infomation.origin_y);
 
-    std::cout << _map_lower.transpose() << ", " << _map_upper.transpose() << std::endl;
     double _inv_resolution = 1.0 / map_infomation.map_resolution;
-    
+    // Map map coordinates to grid coordinates
     int _max_x_id = (int)(map_infomation.map_width * _inv_resolution);
     int _max_y_id = (int)(map_infomation.map_width * _inv_resolution);
     double _origin_x = map_infomation.origin_x;
     double _origin_y = map_infomation.origin_y;
 
     _RRTstar_preparatory = std::make_shared<RRTstarPreparatory>();
+    // Initialize the grid map
     _RRTstar_preparatory -> initGridMap(map_infomation.map_resolution, _map_lower, _map_upper, _max_x_id, _max_y_id);
 
     sensor_msgs::PointCloud2 map_vis;
     pcl::PointCloud<pcl::PointXYZ> cloud_vis;
     pcl::PointXYZ pt;
+    // Checks if the map's grid is occupied and returns a one-dimensional array
     for(int row = 0; row < map_infomation.map_height; row++){
         for(int col = 0; col < map_infomation.map_width; col++){
             int p = int(map_infomation.map_data[col+row*map_infomation.map_width].data);
@@ -143,13 +144,10 @@ void goal_callback(const geometry_msgs::PoseStamped::ConstPtr& msg){
     start_pt = get_odom();
     _start_pt << start_pt.position_x , start_pt.position_y, 0;
     _target_pt << msg->pose.position.x , msg->pose.position.y, 0;
-    ROS_WARN("start pose : (%3f, %3f), valid : %d",
-                _start_pt(0), _start_pt(1),_RRTstar_preparatory->isObsFree(_start_pt(0), _start_pt(1))); 
-    ROS_WARN("target pose: (%3f, %3f), valid : %d",
-                _target_pt(0), _target_pt(1), _RRTstar_preparatory->isObsFree(_target_pt(0), _start_pt(1)));
 
     global_path.clear();
 
+    // Determine whether the optimal path is found, if so, return the starting and ending quad
     if (pathFinding(_start_pt, _target_pt)) {
         Eigen::Quaterniond end_q;
         end_q.x() = msg->pose.orientation.x;
@@ -163,7 +161,7 @@ void goal_callback(const geometry_msgs::PoseStamped::ConstPtr& msg){
 }
 
 
-
+// Call back the robot's mileage information, and return the robot's position coordinates and quads
 void odom_callback(const ros::TimerEvent&){
 
     tf::StampedTransform transform;
@@ -191,7 +189,7 @@ void odom_callback(const ros::TimerEvent&){
     robot_odom = current_T;
 
 }
-
+// Get map information, including map length, width, robot coordinates on the map, and map resolution
 map_info get_map(){
 
     int map_width  = global_map.info.width;
@@ -201,6 +199,7 @@ map_info get_map(){
     double map_resolution = global_map.info.resolution;
 
     std::vector<std_msgs::Int8> map_data_;
+    // Saves the global raster map information to map_data. Returns map information
     for(int i = 0; i < global_map.data.size(); i++){
         std_msgs::Int8 value;
         value.data = global_map.data[i];
@@ -211,19 +210,14 @@ map_info get_map(){
 
 }
 
-robot_coord get_odom(){
-
-    return robot_odom;
-
-}
-
-
+// Returns a Bool variable to determine if a path was found
 bool pathFinding(const Eigen::Vector3d start_pt, const Eigen::Vector3d target_pt){
     
     auto map_infomation = get_map();
-    //coordinate transform
+    // Coordinate transformation, the real world size into grid map coordinates
     double _x_size = map_infomation.map_width * map_infomation.map_resolution;          
     double _y_size = map_infomation.map_height * map_infomation.map_resolution;
+    // As with the goal_callback function, calculate the upper and lower boundaries of the map
     Eigen::Vector2d _map_lower, _map_upper;
     _map_lower << - std::abs(map_infomation.origin_x), - std::abs(map_infomation.origin_y);
     _map_upper << + map_infomation.map_width * map_infomation.map_resolution  - std::abs(map_infomation.origin_x), 
@@ -232,7 +226,7 @@ bool pathFinding(const Eigen::Vector3d start_pt, const Eigen::Vector3d target_pt
 
     ob::StateSpacePtr space(new ob::RealVectorStateSpace(2)); 
     ob::RealVectorBounds bounds(2);
-    //Set the boundary
+    // Set map boundaries
     bounds.setLow(0, _map_lower(0) );
     bounds.setLow(1, _map_lower(1) );
 
@@ -244,12 +238,12 @@ bool pathFinding(const Eigen::Vector3d start_pt, const Eigen::Vector3d target_pt
     si->setStateValidityChecker(ob::StateValidityCheckerPtr(new ValidityChecker(si)));
     si->setup();
     
-    //Start point coordinates
+    // Save the starting point coordinates
     ob::ScopedState<> start(space);
     start[0] = (&start_pt)->operator[](0)  ;
     start[1] = (&start_pt)->operator[](1)  ;
 
-    //End point coordinates
+    // Save the ending point coordinates
     ob::ScopedState<> goal(space);
     goal[0] = (&target_pt)->operator[](0)  ;
     goal[1] = (&target_pt)->operator[](1)  ;
@@ -262,6 +256,7 @@ bool pathFinding(const Eigen::Vector3d start_pt, const Eigen::Vector3d target_pt
     optimizingPlanner->setup();
     ob::PlannerStatus solved = optimizingPlanner->solve(1.0);
     if (solved){
+        // Get a representation of the target from the defined problem and query the path found
         og::PathGeometric* path = pdef->getSolutionPath()->as<og::PathGeometric>();
         std::vector<Eigen::Vector3d> path_points;
         for (size_t path_idx = 0; path_idx < path->getStateCount(); path_idx++){
@@ -275,6 +270,7 @@ bool pathFinding(const Eigen::Vector3d start_pt, const Eigen::Vector3d target_pt
         dealpathtrajectory(path_points);
         visRRTstarPath(path_points_clear);
         visRRTstarPath(path_points);
+        // Convert the found path from path to path_points
         if(path_points.size() == 2){
             auto x_1 = path_points[0];
             auto x_2 = path_points[1];
@@ -288,9 +284,10 @@ bool pathFinding(const Eigen::Vector3d start_pt, const Eigen::Vector3d target_pt
     else
         return false;
 }
-
+// Calculate the new trajectory
 void dealpathtrajectory(std::vector<Eigen::Vector3d>& path){
     std::vector<Eigen::Vector3d> new_path;
+    // Iterate over all nodes and remove excess points on the branch (points more than 0.5 apart)
     for(int i = 0; i < path.size() - 1; i ++){
         double distance_ab = std::sqrt((path[i+1] - path[i]).transpose() * (path[i+1] - path[i]));
         if(distance_ab > 0.5){
@@ -300,9 +297,11 @@ void dealpathtrajectory(std::vector<Eigen::Vector3d>& path){
             for(int j=1; j < count_ab+1 ; j++){
                 new_path.push_back(path[i]+vector_ab*j);
             }
+            // If the new nodes that you want to check are not in range of the current updated nodes (distance 1.5), they are discarded
             if(std::sqrt((path[i+1] - new_path.back()).transpose() * (path[i+1] - new_path.back())) < 1.5)
                 new_path.pop_back();
         }
+        // If it is on the specified branch, save the path directly
         else
             new_path.push_back(path[i]);
     }
@@ -311,28 +310,32 @@ void dealpathtrajectory(std::vector<Eigen::Vector3d>& path){
     path = new_path;
 }
 
-
+// Publishing Path Information
 void send_path(const Eigen::Quaterniond& begin_q, const Eigen::Quaterniond& end_q){
     nav_msgs::Path path_msg;
     path_msg.header.frame_id = "map";
     path_msg.header.stamp = ros::Time::now();
+    // Saves the coordinates of the global path
     for(int i = 0; i < global_path.size(); i++){
         geometry_msgs::PoseStamped path_point;
         path_point.pose.position.x = global_path[i][0];
         path_point.pose.position.y = global_path[i][1];
         path_point.pose.position.z = 0;
+        // Save the starting point
         if(i == 0){
             path_point.pose.orientation.x = begin_q.x();
             path_point.pose.orientation.y = begin_q.y();
             path_point.pose.orientation.z = begin_q.z();
             path_point.pose.orientation.w = begin_q.w();
         }
+        // Save the ending point
         else if(i == global_path.size()-1){
             path_point.pose.orientation.x = end_q.x();
             path_point.pose.orientation.y = end_q.y();
             path_point.pose.orientation.z = end_q.z();
             path_point.pose.orientation.w = end_q.w();
         }
+        // Save the orientation
         else{
             path_point.pose.orientation.x = 0;
             path_point.pose.orientation.y = 0;
@@ -345,7 +348,7 @@ void send_path(const Eigen::Quaterniond& begin_q, const Eigen::Quaterniond& end_
     _RRTstar_path_pub.publish(path_msg);
 
 }
-
+// visualization
 void visRRTstarPath(std::vector<Eigen::Vector3d> nodes ){
     
     auto map_infomation = get_map();
@@ -367,7 +370,6 @@ void visRRTstarPath(std::vector<Eigen::Vector3d> nodes ){
     Points.scale.y = map_infomation.map_resolution/2;
     Line.scale.x   = map_infomation.map_resolution/2;
 
-    //points are green and Line Strip is blue
     Points.color.g = 1.0;
     Points.color.a = 1.0;
     Line.color.b   = 0.0;
@@ -385,6 +387,7 @@ void visRRTstarPath(std::vector<Eigen::Vector3d> nodes ){
         Points.points.push_back(pt);
         Line.points.push_back(pt);
     }
+    // Visualize points and paths generated by the RRT* algorithm
     _RRTstar_path_vis_pub.publish(Points);
     _RRTstar_path_vis_pub.publish(Line); 
 }
@@ -402,15 +405,15 @@ int main(int argc, char **argv){
     listener = &listener_;
 
     ros::Subscriber map_sub  = nh.subscribe<nav_msgs::OccupancyGrid>("/move_base/global_costmap/costmap", 1000, &map_callback);
-    //Subscribe to the global cost map
+    // Subscribe to the global cost map
     ros::Subscriber goal_sub = nh.subscribe<geometry_msgs::PoseStamped>("/move_base_simple/goal", 1000, &goal_callback);
-
+    // visualization
     _grid_map_vis_pub        = nh.advertise<sensor_msgs::PointCloud2>("grid_map_vis", 1, true);
     _RRTstar_path_vis_pub    = nh.advertise<visualization_msgs::Marker>("RRTstar_path_vis",1, true);
     _RRTstar_path_pub        = nh.advertise<nav_msgs::Path>("/rrt_star_path",1000);
 
     ros::Timer      odom_timer = nh.createTimer(ros::Duration(0.2), &odom_callback);
-    //Keep repeating the cycle until you get its location
+    // Repeat the loop until you get the position
 
     ros::Rate r(10);
     while(ros::ok()){
