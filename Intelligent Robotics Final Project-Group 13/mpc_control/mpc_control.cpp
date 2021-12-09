@@ -1,4 +1,4 @@
-#include <mpc_control.hpp>
+#include <mpc_control/mpc_controllor.hpp>
 
 MPCNavigation::MPCNavigation(ros::NodeHandle &nh){
 
@@ -12,7 +12,6 @@ MPCNavigation::MPCNavigation(ros::NodeHandle &nh){
 	nh.param<double>("max_ang",max_ang,0.7);
 	nh.param<double>("min_ang",min_ang,-0.7);
 
-
 	odom_timer      = nh.createTimer(ros::Duration(0.05), &MPCNavigation::OdomCallback, this);
 	local_map_sub   = nh.subscribe<nav_msgs::OccupancyGrid>("/move_base/local_costmap/costmap",10,&MPCNavigation::LocalMapCallback, this);
 	path_sub        = nh.subscribe<nav_msgs::Path>("/global_trajectory", 1, &MPCNavigation::PathCallback, this);
@@ -21,23 +20,14 @@ MPCNavigation::MPCNavigation(ros::NodeHandle &nh){
 	judge_path_pub  = nh.advertise<nav_msgs::Path>("/judge_trajectory", 10, true);
 	replan          = nh.advertise<geometry_msgs::PoseStamped>("/move_base_simple/goal", 10);
 	map_info_ptr   = std::make_shared<MapInfo>();
-	
-}
 
-// Gets the robot's position in the map
+// The callback function of the callback robot
 void MPCNavigation::OdomCallback(const ros::TimerEvent&){
 
 	tf::StampedTransform transform;
     static bool first_step = false;
     static Eigen::Vector3d last_pose;
     static ros::Time time_last = ros::Time::now();
-    try{
-        listener.waitForTransform(world_frame.c_str(),base_frame.c_str(), ros::Time(), ros::Duration(5.0));
-        listener.lookupTransform(world_frame.c_str(),base_frame.c_str(),ros::Time(0), transform);
-    }
-    catch(tf::TransformException &ex){
-        return;
-    }
 
     geometry_msgs::Quaternion q;
     tf::Quaternion quat;
@@ -46,11 +36,11 @@ void MPCNavigation::OdomCallback(const ros::TimerEvent&){
     q.y = transform.getRotation().y();
     q.z = transform.getRotation().z();
 	tf::quaternionMsgToTF(q, quat);
-	double roll, pitch, robot_yaw;
-	tf::Matrix3x3(quat).getRPY(roll,pitch,robot_yaw);
+	double roll, pitch, yaw;
+	tf::Matrix3x3(quat).getRPY(roll,pitch,yaw);
 	Position << transform.getOrigin().x(), 
 				transform.getOrigin().y(),
-								robot_yaw;
+								yaw;
 	if(!first_step){
 		Velocity << 0, 0;
 		last_pose = Position;
@@ -71,8 +61,8 @@ void MPCNavigation::OdomCallback(const ros::TimerEvent&){
 	}
 }
 
-// The resulting trajectory is called back
-void MPCNavigation::PathCallback(const nav_msgs::Path::ConstPtr& msg){ nimi snap
+// Callbacks the resulting trajectory
+void MPCNavigation::PathCallback(const nav_msgs::Path::ConstPtr& msg){ mini snap
 	std::vector<Eigen::Vector3d> waypoints;
 	path_list_get.clear();
     for(int i_count = 0; i_count < msg->poses.size(); i_count++ ){
@@ -89,47 +79,33 @@ void MPCNavigation::PathCallback(const nav_msgs::Path::ConstPtr& msg){ nimi snap
     get_path = true;
 }
 
-bool MPCNavigation::HasTrajectory(){
-	bool get_path_ = get_path;
-	get_path = false;
-	return get_path_;
-}
-
-bool MPCNavigation::JudgeTajectory(){
-	return get_path;
-}
-
-double MPCNavigation::DiffRawFromLastToNow(const double& now_yaw, const double& last_yaw){
-	const double MPC_PI = 3.1415927;
+double MPCNavigation::DiffYaw(const double& now_yaw, const double& last_yaw){
+	const double PI = 3.1415927;
 	double diff_yaw = 0.0;
 
-	if(last_yaw >= 0 && last_yaw <= MPC_PI &&
-	   now_yaw  >= 0 && now_yaw  <= MPC_PI ){
+	if(last_yaw >= 0 && last_yaw <= PI &&
+	   now_yaw  >= 0 && now_yaw  <= PI ){
 		diff_yaw = now_yaw - last_yaw;
 	}
-	else if(last_yaw >= -MPC_PI && last_yaw <= 0 &&
-	   		now_yaw  >= -MPC_PI && now_yaw  <= 0){
+	else if(last_yaw >= -PI && last_yaw <= 0 &&
+	   		now_yaw  >= -PI && now_yaw  <= 0){
 		diff_yaw = last_yaw - now_yaw;
 	}
-	else if(last_yaw >= -MPC_PI && last_yaw <= 0 &&
-	   		now_yaw  >= 0 && now_yaw  <= MPC_PI){
-		if(now_yaw - last_yaw - MPC_PI >= 0)
+	else if(last_yaw >= -PI && last_yaw <= 0 &&
+	   		now_yaw  >= 0 && now_yaw  <= PI){
+		if(now_yaw - last_yaw - PI >= 0)
 			diff_yaw = last_yaw - now_yaw;
 		else
 			diff_yaw = now_yaw - last_yaw;
 	}
-	else if(last_yaw >= 0 && last_yaw <= MPC_PI &&
-	   		now_yaw  >= -MPC_PI && now_yaw  <= MPC_PI){
-		if(last_yaw - now_yaw - MPC_PI >= 0)
+	else if(last_yaw >= 0 && last_yaw <= PI &&
+	   		now_yaw  >= -PI && now_yaw  <= PI){
+		if(last_yaw - now_yaw - PI >= 0)
 			diff_yaw = last_yaw - now_yaw;
 		else
 			diff_yaw = now_yaw - last_yaw;
 	}
 	return diff_yaw;
-}
-
-void MPCNavigation::LocalMapCallback(const nav_msgs::OccupancyGrid::ConstPtr& msg){
-	global_map = *msg;
 }
 
 int MPCNavigation::JudgeOccupied(const std::vector<Eigen::Vector3d>& local_path){
@@ -141,6 +117,7 @@ int MPCNavigation::JudgeOccupied(const std::vector<Eigen::Vector3d>& local_path)
 	return -1;
 }
 
+// This method solves the problem of track running too fast or track running too slow, because in the real environment, it is impossible to track the car in milliseconds
 int MPCNavigation::GetCurrentIndex(){
 
 	Eigen::Vector2d current_pose = Position.block<2,1>(0,0);
@@ -170,7 +147,7 @@ int MPCNavigation::GetCurrentIndex(){
 	return return_index;
 
 }
-
+// MPC initialization
 bool MPCNavigation::MPC_init(){
 
 	BuildMap();
@@ -185,20 +162,21 @@ bool MPCNavigation::MPC_init(){
 	}
 	// tarjectory size :
 	double path_long_size = path_list.size();
+	// real position, reference position
 	X_real.resize(3,path_long_size);
 	X_piao.resize(3,path_long_size);
-
+    // real speed, reference speed
 	U_real.resize(2,path_long_size);
 	U_piao.resize(2,path_long_size);
 	
 	X_real.block<3,1>(0,0) = Position;		
-	X_piao.block<3,1>(0,0) = X_real.block<3,1>(0,0) - path_list[0];	// Real location - Reference location
+	X_piao.block<3,1>(0,0) = X_real.block<3,1>(0,0) - path_list[0];	
 	
 	U_real.block<2,1>(0,0) = Velocity;
-	U_piao.block<2,1>(0,0) = U_real.block<2,1>(0,0);	// True speed - Reference speed
+	U_piao.block<2,1>(0,0) = U_real.block<2,1>(0,0);	
 
 	N = 6;
-
+	// Q represents the ability of the system to follow the reference rail
 	Eigen::Matrix3d q_;
 	q_ << 1,   0,   		0,
 		  0,   1,   		0,
@@ -209,7 +187,7 @@ bool MPCNavigation::MPC_init(){
 	for(int i = 0; i < N; i++)
 		for(int j=0; j < N; j++)
 			Q.block<3,3>(i*3,j*3) = q_;
-
+	// R represents the constraint on the change of control quantity
 	R.resize(2*N,2*N);
 	for(int i = 0; i < 2*N; i++)
 		for(int j=0; j < 2*N; j++)
@@ -236,20 +214,22 @@ void MPCNavigation::MPC_start(int i_count){
 	double v 	 = U_real(0,i_count);
 	double w     = U_real(1,i_count);
 
-
+    
 	Eigen::Matrix3d A_piao = Eigen::Matrix3d::Zero();
+	// Define A matrix
 	A_piao << 1,		0,	-v * delta_t * sin(theta),
 		      0,		1,	 v * delta_t * cos(theta),
 		      0,		0,	 				    	1;
 	
 	Eigen::Matrix<double, 3, 2> B_piao = Eigen::Matrix<double, 3, 2>::Zero();
+	// Define B matrix
 	B_piao << delta_t * cos(theta),			0,
 		 	  delta_t * sin(theta),			0,
 			       			     0,    delta_t;
 
 	Eigen::MatrixXd PHI;
 	PHI.resize(N*3,3);
-
+	// Define fai matrix
 	for(int i=0; i < N; i++){
 		Eigen::Matrix3d A_pow = Eigen::Matrix3d::Identity();
 		for(int j=0; j <= i; j++){
@@ -257,7 +237,7 @@ void MPCNavigation::MPC_start(int i_count){
 		}
 		PHI.block<3,3>(i*3,0) = A_pow;
 	}
-
+	// Define �� matrix
 	Eigen::MatrixXd THETA;
 	THETA.resize(3*N,2*N);
 	for(int i =0; i < THETA.rows(); i++)
@@ -272,13 +252,13 @@ void MPCNavigation::MPC_start(int i_count){
 			THETA.block<18,2>(0,k*2).block<3,2>(i*3+3*k,0) = A_pow * B_piao;
 		}	
 	}	
-
+	
 	Eigen::MatrixXd H;
 	H.resize(2*N,2*N);
 	for(int i =0; i < H.rows(); i++)
 		for(int j =0; j < H.cols(); j++)
 			H(i,j) = 0;
-
+	// Define H matrix
 	H = 2 * (THETA.transpose() * Q * THETA + R);
 	H = (H + H.transpose()) /2;
 
@@ -287,12 +267,13 @@ void MPCNavigation::MPC_start(int i_count){
 
 	Eigen::SparseMatrix<double> Hessian;
 	Hessian.resize(H.rows(), H.cols());
+	// Quadratic convex optimization is solved
 	Hessian = setosqpMatrix(H);
 
 	Eigen::SparseMatrix<double> LinearMatrix;
 	LinearMatrix.resize(A_info.rows(), A_info.cols());
 	LinearMatrix = setosqpMatrix(A_info);
-	
+	// The minimum and maximum values of the control quantity in the control time domain
 	Eigen::VectorXd u_min(N*2);
 	Eigen::Vector2d u_min_;
 	u_min_(0) = min_vel;
@@ -328,7 +309,7 @@ void MPCNavigation::MPC_start(int i_count){
     U_piao.block<2,1>(0,i_count + 1) = U_Optimization.block<2,1>(0,0);
 
     Eigen::Vector2d OUTPUT_state_;
-
+	// Control input increment
     OUTPUT_state(0) = v + U_piao.block<2,1>(0,i_count+1)(0);
     OUTPUT_state(1) = w + U_piao.block<2,1>(0,i_count+1)(1);
 
@@ -337,36 +318,36 @@ void MPCNavigation::MPC_start(int i_count){
     geometry_msgs::Twist cmd_vel;
     cmd_vel.linear.x = OUTPUT_state(0);
     cmd_vel.angular.z = OUTPUT_state(1);
-    // Continuous transmission speed, lasts 0.02 seconds
+    // Continuous release rate, every 0.02 seconds
     cmd_pub.publish(cmd_vel);
     rate_.sleep();
     
-    // Read the current position state of the odometer
+    // ��ȡ��̱�ĵ�ǰλ��״̬
     X_real.block<3,1>(0,i_count+1) = Position;
-
-    if(Position[2] - path_list[i_count+1][2] <= 3.1415 && Position[2] - path_list[i_count+1][2] >= 0.0){
+	PI = 3.1415;
+    if(Position[2] - path_list[i_count+1][2] <= PI && Position[2] - path_list[i_count+1][2] >= 0.0){
     	double z_delta = Position[2] - path_list[i_count+1][2];
     	Eigen::Vector3d temp_position(Position[0], Position[1], z_delta);
     	X_piao.block<3,1>(0,i_count+1) = Eigen::Vector3d((X_real.block<3,1>(0,i_count+1) - path_list[i_count+1])[0],
     												     (X_real.block<3,1>(0,i_count+1) - path_list[i_count+1])[1],
     												     z_delta);
     }
-    else if(Position[2] - path_list[i_count+1][2] > 3.1415 && Position[2] - path_list[i_count+1][2] <= 6.29){
-    	double z_delta = -(6.28 - (Position[2] - path_list[i_count+1][2]));
+    else if(Position[2] - path_list[i_count+1][2] > PI && Position[2] - path_list[i_count+1][2] <= 2*PI){
+    	double z_delta = -(2 * PI - (Position[2] - path_list[i_count+1][2]));
     	Eigen::Vector3d temp_position(Position[0], Position[1], z_delta);
     	X_piao.block<3,1>(0,i_count+1) = Eigen::Vector3d((X_real.block<3,1>(0,i_count+1) - path_list[i_count+1])[0],
     												     (X_real.block<3,1>(0,i_count+1) - path_list[i_count+1])[1],
     												     z_delta);
     }
-    else if(Position[2] - path_list[i_count+1][2] >= -3.1415 && Position[2] - path_list[i_count+1][2] < 0.0){
+    else if(Position[2] - path_list[i_count+1][2] >= -PI && Position[2] - path_list[i_count+1][2] < 0.0){
     	double z_delta = Position[2] - path_list[i_count+1][2];
     	Eigen::Vector3d temp_position(Position[0], Position[1], z_delta);
     	X_piao.block<3,1>(0,i_count+1) = Eigen::Vector3d((X_real.block<3,1>(0,i_count+1) - path_list[i_count+1])[0],
     												     (X_real.block<3,1>(0,i_count+1) - path_list[i_count+1])[1],
     												     z_delta);
     }
-    else if(Position[2] - path_list[i_count+1][2] < -3.1415 && Position[2] - path_list[i_count+1][2] >= -6.29){
-    	double z_delta = (6.28 + (Position[2] - path_list[i_count+1][2]));
+    else if(Position[2] - path_list[i_count+1][2] < -PI && Position[2] - path_list[i_count+1][2] >= -2*PI){
+    	double z_delta = (2 * PI + (Position[2] - path_list[i_count+1][2]));
     	Eigen::Vector3d temp_position(Position[0], Position[1], z_delta);
     	X_piao.block<3,1>(0,i_count+1) = Eigen::Vector3d((X_real.block<3,1>(0,i_count+1) - path_list[i_count+1])[0],
     												     (X_real.block<3,1>(0,i_count+1) - path_list[i_count+1])[1],
@@ -376,25 +357,9 @@ void MPCNavigation::MPC_start(int i_count){
     return;
 }
 
-int MPCNavigation::getTrajectorySize(){
-	return path_list.size() - 10;
-}
-
-Eigen::SparseMatrix<double> MPCNavigation::setosqpMatrix(const Eigen::MatrixXd &matrix_){
-	
-	int row = matrix_.rows();
-	int col = matrix_.cols();
-
-	Eigen::SparseMatrix<double> matrix_return;
-	matrix_return.resize(row,col);
-	for(int i = 0; i < row; i++)
-		for(int j = 0; j < col; j++)
-			matrix_return.insert(i,j) = matrix_(i,j);
-	return matrix_return; 
-}
-
 bool MPCNavigation::TargetPointDection(){
 	Eigen::Vector2d target_coord(path_list.back()[0], path_list.back()[1]);
+	// dx^2+dy^2
 	Eigen::Vector2d target_coord_2(path_list_get.back()[0], path_list_get.back()[1]);
 	Eigen::Vector2d local_coord = Position.block<2,1>(0,0);
 	if((target_coord - local_coord).transpose() * (target_coord - local_coord) < 0.1 * 0.1){
@@ -441,10 +406,11 @@ void MPCNavigation::TrajectorySelfBuild(){
 	traj_sum_.clear();
 	traj_sum_ = traj_sum;
 }
-
+// All forward-looking track points -6
 std::vector<Eigen::Vector3d> MPCNavigation::TrajectoryGet(){
 	int traj_num = traj_sum_.size();
 	int max_path_list_num = path_list_get.size();
+	// Number of paths index
 	std::map<int,std::vector<Eigen::Vector3d>>::iterator it;
 	int current_idx = GetCurrentIndex();
 	std::vector<Eigen::Vector3d> current_path_list;
@@ -458,23 +424,27 @@ std::vector<Eigen::Vector3d> MPCNavigation::TrajectoryGet(){
 		(current_path_list.front().block<2,1>(0,0) - current_path_list.back().block<2,1>(0,0)) < 0.09){
 		for(int num = 0; num < 8; num++){
 			if(current_idx > max_path_list_num-15) break;
+			// The last point is repeatedly put into the queue
 			auto now_node = path_list_get[current_idx];
 			current_path_list.push_back(now_node);
 			current_idx++;
 		}
 	}
 
-
+	// A short section of mini Snap is differentiated from the generated trajectory violence to ensure the minimum distance and the trajectory closest to snap is optimal with the lowest cost
+	// double is the cost, index
 	std::map<double, int> score_vec;
 	for(it = traj_sum_.begin(); it != traj_sum_.end(); it++ ){
 		auto judge_tra = it->second;
 		double score2 = 0.0;
 		for(int i = 0; i < judge_tra.size(); i++){
 			for(int j = 0; j < current_path_list.size(); j++){
+				// A short segment of the Mini Snap contrasts with the generated trajectory violence
 				score2 +=  double((judge_tra[i].block<2,1>(0,0) - current_path_list[j].block<2,1>(0,0)).transpose() * 
 						   (judge_tra[i].block<2,1>(0,0) - current_path_list[j].block<2,1>(0,0)));
 			}
 		}
+		// Returns the cost and index
 		score_vec.insert( std::make_pair(score2, it->first));
 	}
 
