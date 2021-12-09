@@ -1,4 +1,4 @@
-#include <mini_snap/mini_snap.hpp>
+#include <mini_snap.hpp>
 
 void MiniSnapCloseform::Init(const vector<Eigen::Vector3d> &waypoints, double meanvel){
     n_order = 7;
@@ -8,10 +8,11 @@ void MiniSnapCloseform::Init(const vector<Eigen::Vector3d> &waypoints, double me
     mean_vel = meanvel;
 }
 
-// 0 means each segment time is one second.
+// Calculate the interval t.Init_type =0 indicates that each interval is 1 second.
 void MiniSnapCloseform::init_ts(int init_type){
     const double dist_min = 2.0;
     ts = Eigen::VectorXd::Zero(n_seg);
+    // Trapezoidal velocity time profile 
     if (init_type){
         Eigen::VectorXd dist(n_seg);
         double dist_sum = 0, t_sum = 0;
@@ -55,7 +56,6 @@ int MiniSnapCloseform::fact(int n){
     }
 }
 
-//Nicholas Roy's closed solution
 Eigen::VectorXd MiniSnapCloseform::calDecVel(const Eigen::VectorXd decvel){
     Eigen::VectorXd temp(Eigen::VectorXd::Zero((n_seg + 1) * 4));
 	for (int i = 0; i < (n_seg + 1) / 2; i++){
@@ -67,7 +67,7 @@ Eigen::VectorXd MiniSnapCloseform::calDecVel(const Eigen::VectorXd decvel){
 
     return temp;
 }
-
+// Compute the Q matrix
 void MiniSnapCloseform::calQ(){
     Q = Eigen::MatrixXd::Zero(n_seg * (n_order + 1), n_seg * (n_order + 1));
     for (int k = 0; k < n_seg; k++){
@@ -82,7 +82,7 @@ void MiniSnapCloseform::calQ(){
         Q.block(k * (n_order + 1), k * (n_order + 1), n_order + 1, n_order + 1) = Q_k;
     }
 }
-
+// Compute the mapping matrix M
 void MiniSnapCloseform::calM(){
     M = Eigen::MatrixXd::Zero(n_seg * (n_order + 1), n_seg * (n_order + 1));
     for (int k = 0; k < n_seg; k++){
@@ -101,7 +101,7 @@ void MiniSnapCloseform::calM(){
         M.block(k * (n_order + 1), k * (n_order + 1), n_order + 1, n_order + 1) = M_k;
     }
 }
-
+// Compute the selection matrix Ct
 void MiniSnapCloseform::calCt(){
     
     int m = n_seg * (n_order + 1);
@@ -122,7 +122,7 @@ void MiniSnapCloseform::calCt(){
     dF_Ct.rightCols(4) = Ct.rightCols(4);
     Ct << dF_Ct, dP_Ct;
 }
-
+// Separate fixed variables from free variables
 std::pair<Eigen::VectorXd, Eigen::VectorXd> MiniSnapCloseform::MinSnapCloseFormServer(const Eigen::VectorXd &wp)
 {
     std::pair<Eigen::VectorXd, Eigen::MatrixXd> return_vel;
@@ -153,14 +153,17 @@ std::pair<Eigen::VectorXd, Eigen::VectorXd> MiniSnapCloseform::MinSnapCloseFormS
     return_vel.second = dec_vel;
     return return_vel;
 }
-
+// Calculate polynomial coefficient
 void MiniSnapCloseform::calMinsnap_polycoef(){
     Eigen::VectorXd wps_x(n_seg + 1), wps_y(n_seg + 1), wps_z(n_seg + 1);
+    Eigen::MatrixXd poly_coef(poly_coef_x.size(), 3);
+    Eigen::MatrixXd dec_vel(dec_vel_x.size(), 3);
     for (int i = 0; i < n_seg + 1; i++){
         wps_x(i) = wps[i](0);
         wps_y(i) = wps[i](1);
         wps_z(i) = wps[i](2);
     }
+    // The polynomial coefficients in x,y and z directions are calculated under equality constraints
     std::pair<Eigen::VectorXd, Eigen::VectorXd> return_vel;
     return_vel = MinSnapCloseFormServer(wps_x);
     poly_coef_x = return_vel.first;
@@ -171,16 +174,7 @@ void MiniSnapCloseform::calMinsnap_polycoef(){
     return_vel = MinSnapCloseFormServer(wps_z);
     poly_coef_z = return_vel.first;
     dec_vel_z = calDecVel(return_vel.second);
-}
-
-Eigen::MatrixXd MiniSnapCloseform::getPolyCoef(){
-    Eigen::MatrixXd poly_coef(poly_coef_x.size(), 3);
     poly_coef << poly_coef_x, poly_coef_y, poly_coef_z;
-    return poly_coef;
-}
-
-Eigen::MatrixXd MiniSnapCloseform::getDecVel(){
-    Eigen::MatrixXd dec_vel(dec_vel_x.size(), 3);
     dec_vel << dec_vel_x, dec_vel_y, dec_vel_z;
-    return dec_vel;
+    return poly_coef.dec_vel;
 }
