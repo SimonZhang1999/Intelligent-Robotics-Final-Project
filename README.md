@@ -1,5 +1,4 @@
-# Intelligent-Robotics-Final-Project-Group-13
-Intelligent Robotics Final Project-Group 13 (Weijian Zhang, Zhiyu Liu, Xuchu Yang, Ruibo Shen, Zhihao Dong)
+# Intelligent-Robotics
 
 Our goal is to build a cruise robot with path planning, trajectory optimization and dynamic obstacle avoidance through the simulation of ROS system. In addition, considering the
 robustness of the robot, the robot also needs to have the ability to automatically recover from the tracking dead cycle and escape multiple obstacles . In order to realize these functions, we
